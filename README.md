@@ -1,0 +1,4 @@
+xcFirebase
+==========
+
+firebase for angularJS

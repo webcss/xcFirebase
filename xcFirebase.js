@@ -55,13 +55,6 @@ angular.module('firebase', [])
 
 .factory('xcFireCollection', ['$timeout', function($timeout) {
 
-    function FireItem(snap) {
-        this.$ref = snap.ref();
-        this.$id  = snap.name();
-        this.$priority = snap.getPriority();
-        angular.extend( this, snap.val() );
-    }
-
     function fireItem(snap) {
         return angular.extend({
                "$ref": snap.ref(),
@@ -72,7 +65,7 @@ angular.module('firebase', [])
         );
     }
     
-    return function(urlOrRef, oncomplete) {
+    return function(urlOrRef, scope, oncomplete) {
         var ref;
         var collection = []; 
 
@@ -101,6 +94,12 @@ angular.module('firebase', [])
                 var i = collection.indexOfId(snap.name());
                 collection.slice(i, 1);
             });
+        });
+        
+        scope.$on('$destroy', function() {
+            ref.off('child_added');
+            ref.off('child_changed');
+            ref.off('child_removed');
         });
         
         angular.extend(collection, {

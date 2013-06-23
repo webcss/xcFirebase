@@ -14,7 +14,7 @@ Usage is easy:
 
 Then, in your app config:
 ```javascript
-angular.module( 'myapp', [xc.firebase])
+angular.module( 'myapp', ['xc.firebase'])
 .config(function myappConfig($firebaseProvider){
   $firebaseProvider.connect('myFirebase');
 });
@@ -25,7 +25,7 @@ in your controller:
 .controller('myListController', function($scope, $firebase){
   $scope.list = $firebase.collection('mydata', $scope);
 })
-.controller('myDetailController', function($scope, $firebase){
+.controller('myDetailController', function($scope, $firebase, detailId){
   $firebase.watch('mydata/'+detailId, $scope, 'data').then(function(data){
     // data provided for setup purposes, e.g. setting pagetitle and such
   });
@@ -34,9 +34,9 @@ in your controller:
 
 Reasons
 -------
-The main reason for having a provider is, there should only be one firebase per app, and you don't want to type a 
+The main reason for having a provider is, there should only be one firebase per app, and I don't want to type a 
 connection url all the time.
-Second, to me it's clearer to use at least a provider or even better a service for data handling.
+Second, to me it's clearer to use  a provider (or even better a service) for data handling.
 
 What's more?
 ------------
@@ -100,7 +100,8 @@ returns the item for the given id
 
 Roadmap
 --------
-- implementation as a provider to centralize firebase binding (maybe)
+- how about an adapter to indexedDB for offline storage and syncing, so you can start offline? (just an idea for now!)
+- don't know, any ideas?
 
 License
 -------

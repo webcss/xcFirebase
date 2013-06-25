@@ -2,152 +2,15 @@ angular.module('xc.firebase', [])
 
 .value('Firebase', Firebase)
 
-.factory('xcFire', ['$q', '$timeout', '$parse', function($q, $timeout, $parse) {
-
-    return function(urlOrRef, scope, name) {
-        var ref;
-        var d = $q.defer();
-        var stopWatch = angular.noop;
-        var firstCall = true;
-        var localValue, remoteValue;
-
-        if (typeof urlOrRef === "string") {
-            ref = new Firebase(urlOrRef);
-        } else {
-            ref = urlOrRef;
-        }
-
-        function startWatch() {
-            stopWatch = scope.$watch(name, function() {
-                if (firstCall) {
-                    firstCall = false;
-                    return;
-                }
-                localValue = JSON.parse(angular.toJson($parse(name)(scope)));
-                if (!angular.equals(localValue, remoteValue)) {
-                    ref.ref().set(localValue);
-                }
-            }, true);
-        }
-
-        scope.$on('$destroy', function() {
-            stopWatch();
-            ref.off('value');
-        });
-
-        ref.on('value', function(snap) {
-            remoteValue = snap.val();
-            if (!angular.equals(remoteValue, localValue)) {
-                stopWatch();
-                $timeout(function() {
-                    $parse(name).assign(scope, angular.copy(remoteValue));
-                    startWatch();
-                });
-                d.resolve();
-            }
-        });
-
-        return d.promise;
-    };
-
-}])
-
-
-.factory('xcFireCollection', ['$timeout', function($timeout) {
-
-    function fireItem(snap) {
-        return angular.extend({
-               "$ref": snap.ref(),
-               "$id" : snap.name(),
-               "$priority": snap.getPriority()
-            },
-            snap.val()
-        );
-    }
-    
-    return function(urlOrRef, scope, oncomplete) {
-        var ref;
-        var collection = []; 
-
-        if (typeof urlOrRef === "string") {
-            ref = new Firebase(urlOrRef);
-        } else {
-            ref = urlOrRef;
-        }
-
-        if (oncomplete) {
-            ref.once('value', oncomplete);
-        }
-        ref.on('child_added', function(snap) {
-            $timeout(function(){
-                collection.push(fireItem(snap));
-            });
-        });
-        ref.on('child_changed', function(snap) {
-            $timeout(function(){
-                var i = collection.indexOfId(snap.name());
-                collection[i] = fireItem(snap);
-            });
-        });
-        ref.on('child_removed', function(snap) {
-            $timeout(function() {
-                var i = collection.indexOfId(snap.name());
-                collection.slice(i, 1);
-            });
-        });
-
-        scope.$on('$destroy', function() {
-            ref.off('child_added');
-            ref.off('child_changed');
-            ref.off('child_removed');
-        });
-        
-        angular.extend(collection, {
-            indexOfId: function(id) {
-                var l = this.length;
-                while(l--) {
-                    if (this[l].$id === id) {
-                        return l;
-                    }
-                }
-                return -1;
-            },
-            itemById: function(id) {
-                var i = this.indexOfId;
-                return (i < -1) ? this[i] : null;
-            },
-            add: function(item) {
-                ref.push(item);
-            },
-            upsert: function(item) {
-                var copy = {};
-                for (var key in item) {
-                    if(key.indexOf('$') !== 0) {
-                        copy[key] = item[key];
-                    }
-                }
-                item.$ref.set(copy);
-            },
-            remove: function(itemOrId) {
-                item = (typeof itemOrId === "string") ? this.itemById(itemOrId): itemOrId;
-                item.$ref.remove();
-            }
-        });
-
-        return collection;
-    };
-
-}])
-
 .provider('$firebase', function() {
 
     var module = this;
 
     module.fbRef = null;
 
-    module.connect = function(path) {
-        path = 'https://' + path + '.firebaseio.com';
-        module.fbRef = new Firebase(path);
+    module.connect = function(dbName) {
+        dbName = 'https://' + dbName + '.firebaseio.com';
+        module.fbRef = new Firebase(dbName);
     };
 
     function Fireitem(snap) {
@@ -157,13 +20,22 @@ angular.module('xc.firebase', [])
         angular.extend(this, snap.val());
     }
     
+    function defOnComplete(error) {
+        if(error){
+            d.reject(error);
+        } else {
+            d.resolve();
+        }
+    }
 
     module.$get = ['$timeout', '$q', '$parse', function($timeout, $q, $parse) {
+
+        var activeConnection = module.fbRef;
 
         var FB = {
             login: function(token) {
                 var d = $q.defer();
-                module.fbRef.auth(token, 
+                FB.root().auth(token, 
                     function(error, result) {
                         if(error) {
                             d.reject(error);
@@ -177,77 +49,132 @@ angular.module('xc.firebase', [])
                 );
             },
             logout: function() {
-                module.fbRef.unauth();
+                FB.root().unauth();
             },
-            connect: function(path) {
-                return module.fbRef.child(path);
+            connect: function(path, options) {
+                var ref = FB.root().child(path);
+                if (options) {
+                    for(var key in options) {
+                        switch(key) {
+                            case 'startAt':
+                            case 'endAt':
+                            case 'limit':
+                                ref[key](options[key]);
+                                break;
+                            default:
+                                throw new Error('invalid firebase option: ' + key);
+                        }
+                    }
+                }
+                activeConnection = ref;
+                return FB;
+            },
+            activeConnection: function() {
+                return activeConnection;
             },
             root: function() {
                 return module.fbRef;
             },
-            once: function(path, eventType) {
+            once: function(eventType) {
                 var d = $q.defer();
-                FB.connect(path).once(eventType, function(snap){
+                var ref = FB.activeConnection();
+                ref.once(eventType, function(snap){
                     d.resolve(new Fireitem(snap));
                 });
                 return d.promise;
             },
-            on: function(path, eventType) {
+            on: function(eventType) {
                 var d = $q.defer();
-                FB.connect(path).on(eventType, function(snap){
+                var ref = FB.activeConnection();
+                ref.on(eventType, function(snap){
                     d.resolve(new Fireitem(snap));
                 });
                 return d.promise;
             },
-            off: function(path, eventType) {
-                FB.connect(path).off(eventType);
+            off: function(eventType) {
+                var ref = FB.activeConnection();
+                ref.off(eventType);
             },
-            set: function(path, value, priority) {
+            set: function(value, priority) {
                 var d = $q.defer();
-                var ref = FB.connect(path);
+                 var ref = FB.activeConnection();
                 if (priority) {
-                    ref.set(value, function() {
-                        d.resolve();
+                    ref.set(value, function(error) {
+                        if(error){
+                            d.reject(error);
+                        } else {
+                            d.resolve();
+                        }
                     });
                 } else {
-                    ref.setWithPriority(value, priority, function() {
-                        d.resolve();
+                    ref.setWithPriority(value, priority, function(error) {
+                        if(error){
+                            d.reject(error);
+                        } else {
+                            d.resolve();
+                        }
                     });
                 }
                 return d.promise;
             },
-            update: function(path, children, priority) {
+            update: function(children, priority) {
                 var d = $q.defer();
-                var ref = FB.connect(path);
-                ref.update(children, function() {
-                    d.resolve();
+                var ref = FB.activeConnection();
+                ref.update(children, function(error) {
+                    if(error) {
+                        d.reject(error);
+                    } else {
+                        d.resolve();
+                        if(priority) {
+                            ref.setPriority(priority, function(error) {
+                                if(error){
+                                    d.reject(error);
+                                } else {
+                                    d.resolve();
+                                }
+                            });
+                        }
+                    }
                 });
-                if(priority) {
-                    ref.setPriority(priority);
-                }
+                
                 return d.promise;
             },
-            push: function(path, value, priority) {
+            push: function(value, priority) {
                 var d = $q.defer();
-                var ref = FB.connect(path);
-                ref.push(value, function() {
-                    d.resolve();
+                var ref = FB.activeConnection();
+                ref.push(value, function(error) {
+                    if(error) {
+                        d.reject(error);
+                    } else {
+                        d.resolve();
+                        if(priority) {
+                            ref.setPriority(priority, function(error) {
+                                if(error){
+                                    d.reject(error);
+                                } else {
+                                    d.resolve();
+                                }
+                            });
+                        }
+                    }
                 });
-                if(priority) {
-                    ref.setPriority(priority);
-                }
                 return d.promise;
             },
             remove: function(path) {
                 var d = $q.defer();
-                FB.connect(path).remove(function() {
-                    d.resolve();
+                var ref = (path)? FB.activeConnection().child(path): FB.activeConnection();
+                ref.remove(function(error) {
+                    if(error){
+                        d.reject(error);
+                    } else {
+                        d.resolve();
+                    }
                 });
                 return d.promise;
             },
             watch: function(path, scope, name) {
-                var ref = FB.connect(path);
                 var d = $q.defer();
+                var ref = (path)? FB.activeConnection().child(path): FB.activeConnection();
                 var stopWatch = angular.noop;
                 var firstCall = true;
                 var localValue, remoteValue;
@@ -278,14 +205,14 @@ angular.module('xc.firebase', [])
                             $parse(name).assign(scope, angular.copy(remoteValue));
                             startWatch();
                         });
-                        d.resolve(remoteValue);
+                        d.resolve(snap);
                     }
                 });
 
                 return d.promise;
             },
             collection: function(path, scope, oncomplete) {
-                var ref = FB.connect(path);
+                var ref = (path)? FB.activeConnection().child(path): FB.activeConnection();
                 var collection = []; 
 
                 if (oncomplete) {

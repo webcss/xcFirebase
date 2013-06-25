@@ -172,9 +172,9 @@ angular.module('xc.firebase', [])
                 });
                 return d.promise;
             },
-            watch: function(path, scope, name) {
+            watch: function(scope, name, path) {
                 var d = $q.defer();
-                var ref = (path)? FB.activeConnection().child(path): FB.activeConnection();
+                var ref = (path)? FB.root().child(path): FB.activeConnection();
                 var stopWatch = angular.noop;
                 var firstCall = true;
                 var localValue, remoteValue;
@@ -211,13 +211,15 @@ angular.module('xc.firebase', [])
 
                 return d.promise;
             },
-            collection: function(path, scope, oncomplete) {
-                var ref = (path)? FB.activeConnection().child(path): FB.activeConnection();
+            collection: function(scope, name, path) {
+                var d = $q.defer();
+                var ref = (path)? FB.root().child(path): FB.activeConnection();
                 var collection = []; 
 
-                if (oncomplete) {
-                    ref.once('value', oncomplete);
-                }
+                ref.once('value', function(snap) {
+                    d.resolve(snap);
+                });
+
                 ref.on('child_added', function(snap) {
                     $timeout(function(){
                         collection.push(new Fireitem(snap));
@@ -234,6 +236,10 @@ angular.module('xc.firebase', [])
                         var i = collection.indexOfId(snap.name());
                         collection.slice(i, 1);
                     });
+                });
+
+                $timeout(function() {
+                    $parse(name).assign(scope, collection);
                 });
 
                 scope.$on('$destroy', function() {
@@ -274,7 +280,7 @@ angular.module('xc.firebase', [])
                     }
                 });
 
-                return collection;
+                return d.promise;
             }
         };
 
@@ -282,7 +288,6 @@ angular.module('xc.firebase', [])
     }];
     
 })
-
 
 ;
 

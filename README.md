@@ -1,5 +1,6 @@
-xcFirebase - integrate firebase.com with angularJS!
+xc.firebase 
 ==========
+###use firebase.com with angularJS the easy way!
 You know firebase.com? You love angularJS? You played with angularFire before? 
 
 Well, I did so as well, and was somehow disappointed with the way angularFire is written, so I rolled my own.
@@ -28,62 +29,100 @@ angular.module( 'myapp', ['xc.firebase'])
 ```
 This sets the rootpath to your firebase, e.g. https://myFirebase.firebaseio.com
 
-#####3. Use it in your controller:
+#####3 a. Use it in your controller:
 ```javascript
-.controller('myListController', function($scope, $firebase){
-  $firebase.collection($scope, 'list', 'mydata')
+.controller('myListController', function( $scope, $firebase ){
+  $firebase.child( 'mydata' ).ScopedCollection( $scope, 'list' )
   .then(function(snap){
     // do something, e.g. hide a loading indicator
   });
 })
-.controller('myDetailController', function($scope, $firebase, detailId){
-  $firebase.watch($scope, 'data', 'mydata/'+detailId) 
+.controller('myDetailController', function( $scope, $firebase, detailId ){
+  $firebase.child( 'mydata/' + detailId ).watch( $scope, 'data' ) 
   .then(function(snap){ 
     // snapshot provided for setup purposes, e.g. setting pagetitle and such
   });
 });
 ```
+#####3 b. ...or as a service:
+```javascript
+.factory('myService', ['$q', '$firebase', function( $q, $firebase ) {
 
+    var myData = $firebase.connectTo('myData');
+    
+    return {
+        "getAll": function(oncomplete) {
+            return myData.collection(oncomplete);
+        },
+        "getById": function(id) {
+            return myData.child(id);
+        },
+        "remove": function(id) {
+            myData.child(id).remove();
+        }
+    };
+}])
 
-##What's more?
-Despite of the collection and watch methods, there are several more methods to resemble the firebase methods, but wrapped 
-in a promise. So for documentation, refer to the source and the firebase documentation to know what they're doing.
-I implemented those primarily for completeness, all I really used so far is watch and collection, which are sufficient 
-for most purposes.
+.controller( 'myListCtrl', function( $scope, myService ) {
 
+    $scope.data = myService.getAll(function(data) {
+      console.log('all arrived!');
+    });
+     
+})
+
+.controller('myDetailCtrl', function ( $scope, $routeParams, myService ) {
+    
+    $scope.detailId = $routeParams.id;
+    myService.getById($routeParams.id).watch( $scope, 'data' ).then(function(data) {
+        
+    });
+
+});
+```
 
 ##Methods
-####watch(scope, scopeVar[, path])
+####watch(scope, scopeVar)
 provides implicit update of your data, means your data is live updated and always in sync. 
-It takes three parameters:
+It takes two parameters:
 - your $scope
-- name of the variable on your $scope where your data will go to
-- an optional path, relative to root. If omitted, the activeConnection() is used
+- the name of the variable on your $scope where your data will go to
 
 returns a promise once the data is completely loaded, with the current snapshot
 
 ```javascript
-$firebase.watch($scope, 'data', 'path-to-mydata').then(function(snap) {
+$firebase.watch($scope, 'data').then(function(snap) {
   //--> init your data editing here, and only here
 }
 ```
 
-####collection(scope, scopeVar[, path])
-The collection method gives you more control over when your data is updated, as you have to explicitly tell it to do so.
-It takes three parameters:
-- your $scope
-- name of the variable on your $scope where your data will go to
-- an optional path, relative to root. If omitted, the activeConnection() is used
-
-returns a promise once the data is completely loaded, with the current snapshot
+####collection([oncomplete])
+The collection method is great for use in a service, and gives you more control over when your data is updated, 
+as you have to explicitly tell it to do so.
+It takes a function to call when data is completely loaded as an optional parameter.
 
 ```javascript
-$firebase.collection($scope, 'data', 'path-to-mydata').then(function(snap){
+$firebase.collection(function(snap){
   //--> to stop a loading indicator previously started, for example
 });
 ```
 
-The scopeVar collection is a standard javascript array object, with the following extensions:
+####scopedCollection(scope, scopeVar)
+The scopedCollection method is similar to collection, but is intended for direct use on a controller. It gives you more
+control over when your data is updated, as you have to explicitly tell it to do so.
+It takes two parameters:
+- your $scope
+- the name of the variable on your $scope where your data will go to
+
+returns a promise once the data is completely loaded, with the current snapshot
+
+```javascript
+$firebase.scopedCollection( $scope, 'data' ).then(function(snap){
+  //--> to stop a loading indicator previously started, for example
+});
+```
+
+Both collections are standard javascript array objects, with the following extensions:
 ####function add(item)
 use it to add an item to your firebase
 
@@ -98,6 +137,12 @@ returns the index of an id within the collection
 
 ####function itemById(id)
 returns the item for the given id
+
+##What's more?
+Despite of the (scoped)collection and watch methods, there are several more methods to resemble the firebase methods, but wrapped 
+in a promise. For documentation on those please refer to the source and the firebase documentation to know what they're doing.
+I implemented those primarily for completeness, all I really used so far is watch and collection, which are sufficient 
+for most purposes.
 
 ##Roadmap
 - how about an adapter to indexedDB for offline storage and syncing, so you can start offline? (just an idea for now!)

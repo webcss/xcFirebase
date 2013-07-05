@@ -1,18 +1,28 @@
+//'use strict';
+
 angular.module('xc.firebase', [])
 
 .value('Firebase', Firebase)
+.value('FirebaseSimpleLogin', FirebaseSimpleLogin)
 
 .provider('$firebase', function() {
 
     var module = this;
 
-    module.fbRef = null;
+    module._ref = null;
+    module._authClient = null;
 
     module.connect = function(dbName) {
         dbName = 'https://' + dbName + '.firebaseio.com';
-        module.fbRef = new Firebase(dbName);
+        module._ref = new Firebase(dbName);
+        return module;
+    }; 
+    module.authenticate = function(authMethods, pathToLogin) {
+        module._authMethods = authMethods;
+        module._pathToLogin = pathToLogin;
+        return module;
     };
-
+    
     function Fireitem(snap) {
         this.$ref = snap.ref();
         this.$id  = snap.name();
@@ -52,10 +62,11 @@ angular.module('xc.firebase', [])
         }
     };
 
-    module.$get = ['$timeout', '$q', '$parse', function($timeout, $q, $parse) {
+    module.$get = ['$timeout', '$q', '$parse', 'authClient', 
+    function($timeout, $q, $parse, authClient) {
 
         var Connection = function(path, rootRef) {
-            rootRef = rootRef || module.fbRef;
+            rootRef = rootRef || module._ref;
             this.path = path;
             this.pathRef = rootRef.child(path);
             return this;
@@ -74,9 +85,9 @@ angular.module('xc.firebase', [])
                 });
                 return d.promise;               
             },
-            "on": function(eventType, onresult) {
+            "on": function(eventType, oncomplete) {
                 this.pathRef.on(eventType, function(snap){    
-                    onresult(new Fireitem(snap));
+                    oncomplete(new Fireitem(snap));
                 });                    
             },
             "off": function(eventType) {
@@ -126,7 +137,8 @@ angular.module('xc.firebase', [])
             },
             "push": function(value, priority) {
                 var d = $q.defer();
-                this.pathRef.push(value, function(error) {
+                var ref;
+                ref = this.pathRef.push(value, function(error) {
                     if(error) {
                         d.reject(error);
                     } else {
@@ -135,11 +147,11 @@ angular.module('xc.firebase', [])
                                 if(error){
                                     d.reject(error);
                                 } else {
-                                    d.resolve();
+                                    d.resolve(ref.name());
                                 }
                             });
                         } else {
-                            d.resolve();
+                            d.resolve(ref.name());
                         }
                     }
                 });
@@ -209,9 +221,11 @@ angular.module('xc.firebase', [])
             },
             "collection": function(oncomplete) {
                 var self = this;
+                //var d = $q.defer();
                 var collection = []; 
 
                 this.pathRef.once('value', function(snap) {
+                    //d.resolve(collection);
                     if(oncomplete) { 
                         oncomplete(snap);
                     }
@@ -237,6 +251,7 @@ angular.module('xc.firebase', [])
                 
                 angular.extend(collection, FireCollection);
 
+                //return d.promise;
                 return collection;
             },
             "scopedCollection": function(scope, scopeVar) {
@@ -264,27 +279,20 @@ angular.module('xc.firebase', [])
         };
 
         return {
-            "absoluteUrl": function() {
-                module.fbRef.toString();
+            "initialize": function() {
+                authClient.initialize(module._ref, module._authMethods, module._pathToLogin);
             },
-            "login": function(token) {
-                var d = $q.defer();
-                FB.root().auth(token, 
-                    function(error, result) {
-                        if(error) {
-                            d.reject(error);
-                        } else {
-                            d.resolve(result);  
-                        } 
-                    },
-                    function(error) {
-                        d.reject(error);
-                    }
-                );
-                return d.promise;
+            "login": function(token, options) {
+                authClient.login(token, options);
             },
             "logout": function() {
-                FB.root().unauth();
+                authClient.logout();
+            },
+            "authenticated": function() {
+                return authClient.isAuthenticated();
+            },
+            "absoluteUrl": function() {
+                module._ref.toString();
             },
             "connectTo": function(path) {
                 return new Connection(path);
@@ -297,6 +305,123 @@ angular.module('xc.firebase', [])
     
 })
 
+.factory('authClient', ['$q', '$timeout', '$rootScope', '$location', function($q, $timeout, $rootScope, $location) {
+
+    var _ref = null;
+    var _authClient = null;
+    var _authMethods = ["github","persona","twitter","facebook","password"];
+    var _pathToLogin = '/login';
+    var _redirectTo  = false;
+    var _user = null;
+
+    return {
+        "initialize": function(ref, authMethods, pathToLogin) {
+            var self = this;
+            _ref = ref;
+            _authMethods = authMethods || ["github","persona","twitter","facebook","password"];
+            _pathToLogin = pathToLogin || '/login';
+            _redirectTo  = false;
+            _user = null;
+            if(!FirebaseSimpleLogin) {
+                throw new Error('FirebaseSimpleLogin unavailable. Is it really included?');
+            }
+            _authClient = new FirebaseSimpleLogin(_ref, function(error, user) {
+                if (error) {
+                    _user = null;
+                    $rootScope.$broadcast('firebaseAuth:error', error);
+                    console.log('Error: ', error);
+                } else if (user) {
+                    _user = user;
+                    $rootScope.$broadcast('firebaseAuth:login', user);
+                    if(_redirectTo) { 
+                        $timeout(function() {
+                            $location.replace();
+                            $location.path(_redirectTo || '/'); 
+                        });
+                    }
+                    console.log('Login', user);
+                } else {
+                    _user = null;
+                    $rootScope.$broadcast('firebaseAuth:logout', user);
+                    console.log('Logout', user);
+                }
+                $rootScope.$on("$routeChangeStart", function(e, next, current) {
+                    if (next.authRequired && !_user) {
+                        _redirectTo = (!_redirectTo)? $location.path(): _redirectTo;
+                        $location.replace();
+                        $location.path(_pathToLogin);
+                    } 
+                });
+                $rootScope.logout = function() {
+                    self.logout();
+                };
+            });
+        },
+        "createUser": function(email, password) {
+            if (_authClient && (_authMethods.indexOf('password') >= 0)) {
+                _authClient.createUser(email, password, function(error, user){
+                    if (error) {
+                        _user = null;
+                        $rootScope.$broadcast('firebaseAuth:error', error);
+                        console.log('Error: ', error);
+                    } else if (user) {
+                        _user = user;
+                        $rootScope.$broadcast('firebaseAuth:create', user);
+                        console.log('Created', user);
+                    }
+                });
+            } else {
+                console.log('password authentication not supported.');
+            }
+        },
+        "changePassword": function(email, oldPass, newPass) {
+            if (_authClient && (_authMethods.indexOf('password') >= 0)) {
+                _authClient.changePassword(email, oldPass, newPass, function(error, success) {
+                    if (error) {
+                        $rootScope.$broadcast('firebaseAuth:error', error);
+                        console.log('Error: ', error);
+                    } else {
+                        $rootScope.$broadcast('firebaseAuth:passwordChanged', success);
+                        console.log('Password changed: ', success);
+                    }
+                });
+            } else {
+                console.log('password authentication not supported.');
+            }
+        },
+        "login": function(token, options) {
+            if (_authClient && (_authMethods.indexOf(token) >= 0)) {
+                _authClient.login(token, options);
+            } else {
+                // custom login
+                var d = $q.defer();
+                _ref.auth(token, 
+                    function(error, result) {
+                        if(error) {
+                            d.reject(error);
+                        } else {
+                            d.resolve(result);  
+                        } 
+                    },
+                    function(error) {
+                        d.reject(error);
+                    }
+                );
+                return d.promise;
+            }
+        },
+        "logout": function() {
+            if (_authClient) {
+                _authClient.logout();
+            } else {
+                _ref.unauth();
+            }
+        },
+        "isAuthenticated": function() {
+            return (_user) ? true: false;
+        }
+    };
+
+}])
 
 ;
-

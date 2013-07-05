@@ -147,8 +147,10 @@ for most purposes.
 ##Authentication
 xc.firebase now supports firebase's SimpleLogin.
 All you need to do is
-1. Setup authentication in your app config:
-´´´javascript
+
+#####1. Setup authentication in your app config:
+
+```javascript
 config( function myAppConfig ( $routeProvider, $locationProvider, $firebaseProvider ) {
     
     $routeProvider
@@ -174,19 +176,20 @@ config( function myAppConfig ( $routeProvider, $locationProvider, $firebaseProvi
         .authenticate(['password'], '/login');
 
 });
-´´´
+```
 In your routeProvider you define wether or not a location requires authenticated access by setting 'authRequired: true'.
 The authenticate method takes two params, one is an array of allowed authentication methods, the other is a path to your 
 login screen.
 
-2. initialize it on app run
-´´´javascript
+#####2. initialize it on app run
+
+```javascript
 .run( function run ( $firebase ) {
 
     $firebase.initialize();
     
 });
-´´´
+```
 This is neccessary (for now) to kickoff authentication.
 
 ##Roadmap

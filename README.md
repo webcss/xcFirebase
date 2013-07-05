@@ -144,7 +144,53 @@ in a promise. For documentation on those please refer to the source and the fire
 I implemented those primarily for completeness, all I really used so far is watch and collection, which are sufficient 
 for most purposes.
 
+##Authentication
+xc.firebase now supports firebase's SimpleLogin.
+All you need to do is
+1. Setup authentication in your app config:
+´´´javascript
+config( function myAppConfig ( $routeProvider, $locationProvider, $firebaseProvider ) {
+    
+    $routeProvider
+    .when( '/myFirstPage', {
+      authRequired: true,
+      controller: firstPageCtrl,
+      templateUrl: 'firstpage.tmpl.html'
+    })
+    .when( '/mySecondPage', {
+      authRequired: true,
+      controller: secondPageCtrl,
+      templateUrl: 'secondpage.tmpl.html'
+    })
+    .when( '/about', {
+      authRequired: false,
+      controller: aboutCtrl,
+      templateUrl: 'about.tmpl.html'
+    })    
+    .otherwise({ redirectTo: '/' });
+
+    $firebaseProvider
+        .connect('myFirebase')
+        .authenticate(['password'], '/login');
+
+});
+´´´
+In your routeProvider you define wether or not a location requires authenticated access by setting 'authRequired: true'.
+The authenticate method takes two params, one is an array of allowed authentication methods, the other is a path to your 
+login screen.
+
+2. initialize it on app run
+´´´javascript
+.run( function run ( $firebase ) {
+
+    $firebase.initialize();
+    
+});
+´´´
+This is neccessary (for now) to kickoff authentication.
+
 ##Roadmap
+- definition of indexes on any field similar to FirebaseIndex
 - how about an adapter to indexedDB for offline storage and syncing, so you can start offline? (just an idea for now!)
 - don't know, any ideas?
 

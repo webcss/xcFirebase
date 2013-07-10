@@ -190,8 +190,17 @@ login screen.
     
 });
 ```
-This is neccessary (for now) to kickoff authentication.
+This is mandatory (for now) to kickoff authentication.
 
+##Samples
+#####1. Receive a notification on any datachange
+To receive and notify upon any data changed, use the following in your controller or service
+```javascript
+$firebase.connectTo('products').on('child_changed', function(item) {
+    console.log('data changed');
+});
+```
+    
 ##Roadmap
 - definition of indexes on any field similar to FirebaseIndex
 - how about an adapter to indexedDB for offline storage and syncing, so you can start offline? (just an idea for now!)
